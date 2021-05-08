@@ -12,8 +12,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <assert.h>
 
 #include "thr.h"
+#include "task_index.h"
 
 #define MAX_THRS (32)
 #define NUM_OS_THRS (4)
@@ -21,15 +23,6 @@
 pthread_t OS_THREADS[NUM_OS_THRS];
 
 bool DONE = false;
-
-struct task {
-    int cost;             /**< Task cost */
-    int tid;              /**< Task id */
-    bool blocked;         /**< Blocked status */
-    void *(*fn)(void *);  /**< Task function */
-    void *arg;            /**< Task arguments */
-    struct task *next;    /**< Next task in queue */
-};
 
 /**
  * @brief Queue for individual OS threads
@@ -73,6 +66,21 @@ static struct task *get_task(int tid) {
     return curr;
 }
 
+static struct task *task_pop(struct thread_queue *tq) {
+    assert(tq != NULL);
+    struct task *t;
+
+    if (tq->num_tasks == 0) {
+        return NULL;
+    }
+
+    tq->num_tasks--;
+    t = tq->queue;
+    tq->queue = t->next;
+
+    return t;
+}
+
 /**
  * @brief Main loop for OS threads
  * @param arg Thread's queue
@@ -86,6 +94,17 @@ void *worker(void *arg) {
         if (DONE) {
             break;
         }
+
+        if (tq->num_tasks == 0) {
+            // TODO: sleep, maybe on a convar
+        }
+
+        // Get task from queue
+        struct task *t = task_pop(tq);
+
+        // Execute task
+        t->fn(t->arg);
+
         continue;
     }
 
@@ -136,6 +155,7 @@ int thr_add(void *(*fn)(void *), void *arg) {
     t->fn = fn;
     t->arg = arg;
     t->next = WQ->queue;
+    pthread_mutex_init(&t->lock, NULL);
 
     // Update global queue
     WQ->num_tasks++;
@@ -151,6 +171,7 @@ int thr_add(void *(*fn)(void *), void *arg) {
  * @return Only returns once the task returns
  */
 void thr_wait(int tid) {
+    (void) tid;
     return;
 }
 

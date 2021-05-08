@@ -28,9 +28,10 @@ bool DONE = false;
  * @brief Queue for individual OS threads
  */
 struct thread_queue {
-    int tid;             /**< Thread id */
-    int num_tasks;       /**< Number of tasks in queue */
-    struct task *queue;  /**< Queue of tasks */
+    int tid;              /**< Thread id */
+    int num_tasks;        /**< Number of tasks in queue */
+    pthread_mutex_t lock; /**< Queue lock */
+    struct task *queue;   /**< Queue of tasks */
 };
 
 /**
@@ -66,11 +67,19 @@ static struct task *get_task(int tid) {
     return curr;
 }
 
+/**
+ * @brief Pop a task from a thread queue
+ * @param tq The queue to pop from
+ * @return The popped task
+ */
 static struct task *task_pop(struct thread_queue *tq) {
     assert(tq != NULL);
+    pthread_mutex_lock(&tq->lock);
     struct task *t;
 
+    // Check if there are tasks to pop
     if (tq->num_tasks == 0) {
+        pthread_mutex_unlock(&tq->lock);
         return NULL;
     }
 
@@ -78,7 +87,17 @@ static struct task *task_pop(struct thread_queue *tq) {
     t = tq->queue;
     tq->queue = t->next;
 
+    pthread_mutex_unlock(&tq->lock);
     return t;
+}
+
+/**
+ * @brief Worker requests tasks from global queue
+ * @param tq The queue for the worker
+ * @return Number of tasks added to the queue
+ */
+int request_tasks(struct thread_queue *tq) {
+    return 0;
 }
 
 /**
@@ -96,14 +115,26 @@ void *worker(void *arg) {
         }
 
         if (tq->num_tasks == 0) {
-            // TODO: sleep, maybe on a convar
+            // Check if there is work to take from the global queue
+            if (request_tasks(tq) != 0) {
+                break;
+            } else {
+                // No work; sleep TODO: maybe add a convar
+                sleep(1);
+            }
         }
 
         // Get task from queue
         struct task *t = task_pop(tq);
 
+        // Chceck if there is actual work (could have beeen stolen between
+        // checking and popping)
+        if (t == NULL) {
+            continue;
+        }
+
         // Execute task
-        t->fn(t->arg);
+        thr_execute(t);
 
         continue;
     }
@@ -167,6 +198,7 @@ int thr_add(void *(*fn)(void *), void *arg) {
 
 /**
  * @brief Wait for a task to complete
+ * TODO
  * @param tid Task id to wait for
  * @return Only returns once the task returns
  */
@@ -179,14 +211,11 @@ void thr_wait(int tid) {
  * @brief Have a thread execute a task
  * @param tid Task id to execute
  */
-void thr_execute(int tid) {
-    // Get the thread struct
-    struct task *t = get_task(tid);
-
+void thr_execute(struct task *t) {
     // Execute the work
     t->fn(t->arg);
 
-    // Update the work queue
+    // Remove task from the work queue
     pthread_mutex_lock(&WQ->lock);
     struct task *curr = WQ->queue;
     while (curr->next != t) {

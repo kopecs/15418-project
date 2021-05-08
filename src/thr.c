@@ -8,11 +8,12 @@
  * @date Spring 2021
  */
 
-#include <stdbool.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <pthread.h>
 #include <assert.h>
+#include <pthread.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include "thr.h"
 #include "task_index.h"
@@ -92,11 +93,32 @@ static struct task *task_pop(struct thread_queue *tq) {
 }
 
 /**
+ * @brief Have a thread execute a task
+ * @param tid Task id to execute
+ */
+void thr_execute(struct task *t) {
+    // Execute the work
+    t->fn(t->arg);
+
+    // Remove task from the work queue
+    pthread_mutex_lock(&WQ->lock);
+    struct task *curr = WQ->queue;
+    while (curr->next != t) {
+        curr = curr->next;
+    }
+
+    curr->next = t->next;
+    pthread_mutex_unlock(&WQ->lock);
+}
+
+
+/**
  * @brief Worker requests tasks from global queue
  * @param tq The queue for the worker
  * @return Number of tasks added to the queue
  */
 int request_tasks(struct thread_queue *tq) {
+    (void) tq;
     return 0;
 }
 
@@ -205,25 +227,6 @@ int thr_add(void *(*fn)(void *), void *arg) {
 void thr_wait(int tid) {
     (void) tid;
     return;
-}
-
-/**
- * @brief Have a thread execute a task
- * @param tid Task id to execute
- */
-void thr_execute(struct task *t) {
-    // Execute the work
-    t->fn(t->arg);
-
-    // Remove task from the work queue
-    pthread_mutex_lock(&WQ->lock);
-    struct task *curr = WQ->queue;
-    while (curr->next != t) {
-        curr = curr->next;
-    }
-
-    curr->next = t->next;
-    pthread_mutex_unlock(&WQ->lock);
 }
 
 /**

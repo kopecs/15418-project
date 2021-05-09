@@ -36,4 +36,6 @@ clock_t task_cost_get_from_task(struct task *t);
 
 clock_t task_cost_get_from_tid(int tid);
 
+struct task *task_create(void *(*fn)(void *), void *arg, int tid);
+
 #endif /* TASK_INDEX_H */

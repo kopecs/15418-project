@@ -106,6 +106,9 @@ static inline void work_queue_insert(struct task *t) {
         prev = curr;
         curr = curr->next;
     }
+
+    WQ->num_tasks++;
+    WQ->total_cost += t->cost;
 }
 
 /**
@@ -279,29 +282,11 @@ int thr_add(void *(*fn)(void *), void *arg) {
     // This lock is wrong
     pthread_mutex_lock(&WQ->lock);
 
-    // Create new task
-    struct task *t = malloc(sizeof(struct task));
-    if (!t) {
-        pthread_mutex_unlock(&WQ->lock);
-        return -1;
-    }
-
-    // Initialize task
-    t->tid = WQ->num_tasks;
-    t->fn = fn;
-    t->arg = arg;
-    t->cost = task_cost_measure(t);
-    t->blocked = false;
-    t->thread = -1;
-    t->executing = false;
-    t->done = false;
-    pthread_mutex_init(&t->lock, NULL);
+    struct task *t = task_create(fn, arg, WQ->num_tasks);
     t->next = WQ->queue;
 
     // Update global queue
     work_queue_insert(t);
-    /*WQ->num_tasks++;
-    WQ->queue = t;*/
     // TODO: this unlock is wrong
     pthread_mutex_unlock(&WQ->lock);
 

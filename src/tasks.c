@@ -61,3 +61,23 @@ clock_t task_cost_get_from_tid(int tid) {
 
     return -1;
 }
+
+struct task *task_create(void *(*fn)(void *), void *arg, int tid) {
+    struct task *t = malloc(sizeof(struct task));
+    if (!t) {
+        return NULL;
+    }
+
+    t->tid = tid;
+    t->fn = fn;
+    t->arg = arg;
+    t->cost = task_cost_measure(t);
+    t->blocked = false;
+    t->thread = -1;
+    t->executing = false;
+    t->done = false;
+    pthread_mutex_init(&t->lock, NULL);
+
+    return t;
+}
+

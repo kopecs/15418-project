@@ -22,6 +22,8 @@ struct task {
     bool blocked;          /**< Blocked status */
     void *(*fn)(void *);   /**< Task function */
     void *arg;             /**< Task arguments */
+    int thread;            /**< Thread the task is assigned to (-1 if unassigned) */
+    bool executing;        /**< If the task has started executing */
     pthread_mutex_t lock;  /**< Lock for fine grained locking */
     struct task *next;     /**< Next task in queue */
 };

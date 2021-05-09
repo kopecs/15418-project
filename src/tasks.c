@@ -5,7 +5,7 @@
 #include <time.h>
 #include <stdlib.h>
 
-#include "task_index.h"
+#include "tasks.h"
 
 /** Index of task costs */
 struct task_cost *task_index;

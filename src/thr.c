@@ -16,14 +16,12 @@
 #include <unistd.h>
 
 #include "thr.h"
-#include "task_index.h"
+#include "tasks.h"
+
+#define MAYBE_UNUSED __attribute__((unused))
 
 #define MAX_THRS (32)
 #define NUM_OS_THRS (4)
-
-pthread_t OS_THREADS[NUM_OS_THRS];
-
-bool DONE = false;
 
 /**
  * @brief Queue for individual OS threads
@@ -45,14 +43,24 @@ struct work_queue {
     pthread_mutex_t lock;  /**< Queue lock */
 };
 
+/** Array of worker threads */
+pthread_t OS_THREADS[NUM_OS_THRS];
+
+/** Boolean to keep track if execution has been marked as done */
+bool DONE = false;
+
+/** Global work queue of all tasks*/
 struct work_queue *WQ;
+
+/** Individual work thread queues */
+struct thread_queue THREAD_QUEUES[NUM_OS_THRS];
 
 /**
  * @brief Get task struct from task id
  * @param tid Task id
  * @return Task struct corresponding with tid
  */
-static struct task *get_task(int tid) {
+MAYBE_UNUSED static inline struct task *get_task(int tid) {
     pthread_mutex_lock(&WQ->lock);
 
     // Loop through global tasks to find individual one
@@ -106,6 +114,8 @@ void thr_execute(struct task *t) {
     while (curr->next != t) {
         curr = curr->next;
     }
+
+    // TODO: uninitialize mutex and free the task
 
     curr->next = t->next;
     pthread_mutex_unlock(&WQ->lock);
@@ -183,7 +193,16 @@ void thr_init(void) {
 
     // Create worker threads
     for (int i = 0; i < NUM_OS_THRS; i++) {
-        pthread_create(&OS_THREADS[i], NULL, worker, NULL);
+        struct thread_queue *tq = &THREAD_QUEUES[i];
+
+        // Initialize thread's queue
+        tq->tid = i;
+        tq->num_tasks = 0;
+        pthread_mutex_init(&tq->lock, NULL);
+        tq->queue = NULL;
+
+        // Create worker thread
+        pthread_create(&OS_THREADS[i], NULL, worker, &THREAD_QUEUES[i]);
     }
 }
 
@@ -202,13 +221,15 @@ int thr_add(void *(*fn)(void *), void *arg) {
         pthread_mutex_unlock(&WQ->lock);
         return -1;
     }
-
     // initialize task
     t->tid = WQ->num_tasks;
     t->fn = fn;
     t->arg = arg;
-    t->next = WQ->queue;
+    t->blocked = false;
+    t->thread = -1;
+    t->executing = false;
     pthread_mutex_init(&t->lock, NULL);
+    t->next = WQ->queue;
 
     // Update global queue
     WQ->num_tasks++;
@@ -233,6 +254,12 @@ void thr_wait(int tid) {
  * @brief Cleanup function
  */
 void thr_finish() {
+    // Update done status
     DONE = true;
+
+    // Wait for workers to finish up
+    for (int i = 0; i < NUM_OS_THRS; i++) {
+        pthread_join(OS_THREADS[i], NULL);
+    }
 }
 

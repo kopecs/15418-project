@@ -15,8 +15,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "thr.h"
 #include "tasks.h"
+#include "thr.h"
 
 #define MAYBE_UNUSED __attribute__((unused))
 
@@ -39,10 +39,10 @@ struct thread_queue {
  * @brief Information about the work queue
  */
 struct work_queue {
-    int num_tasks;         /**< Number of tasks in queue */
-    clock_t total_cost;    /**< Total cost of workers in the global queue */
-    struct task *queue;    /**< Task queue */
-    pthread_mutex_t lock;  /**< Queue lock */
+    int num_tasks;        /**< Number of tasks in queue */
+    clock_t total_cost;   /**< Total cost of workers in the global queue */
+    struct task *queue;   /**< Task queue */
+    pthread_mutex_t lock; /**< Queue lock */
 };
 
 /** Array of worker threads */
@@ -108,7 +108,7 @@ static struct task *task_pop(struct thread_queue *tq) {
  */
 void thr_execute(struct task *t) {
     // Execute the work
-    t->fn(t->arg);
+    t->ret = t->fn(t->arg);
 
     // Remove task from the global work queue
     pthread_mutex_lock(&WQ->lock);
@@ -128,7 +128,6 @@ void thr_execute(struct task *t) {
     free(t);
     pthread_mutex_unlock(&WQ->lock);
 }
-
 
 /**
  * @brief Worker requests tasks from global queue
@@ -172,6 +171,8 @@ int request_tasks(struct thread_queue *tq) {
  * @param arg Thread's queue
  */
 void *worker(void *arg) {
+    int sleep_time = 1;
+
     struct thread_queue *tq = (struct thread_queue *)arg;
 
     // Main execution loop
@@ -183,11 +184,12 @@ void *worker(void *arg) {
 
         if (tq->num_tasks == 0) {
             // Check if there is work to take from the global queue
-            if (request_tasks(tq) != 0) {
-                break;
-            } else {
+            if (request_tasks(tq) == 0) {
                 // No work; sleep TODO: maybe add a convar
-                sleep(1);
+                sleep(sleep_time);
+                sleep_time *= 2;
+            } else {
+                sleep_time = 1;
             }
         }
 
@@ -202,8 +204,6 @@ void *worker(void *arg) {
 
         // Execute task
         thr_execute(t);
-
-        continue;
     }
 
     return NULL;
@@ -256,10 +256,12 @@ int thr_add(void *(*fn)(void *), void *arg) {
         pthread_mutex_unlock(&WQ->lock);
         return -1;
     }
-    // initialize task
+
+    // Initialize task
     t->tid = WQ->num_tasks;
     t->fn = fn;
     t->arg = arg;
+    t->cost = task_cost_measure(t);
     t->blocked = false;
     t->thread = -1;
     t->executing = false;
@@ -281,7 +283,7 @@ int thr_add(void *(*fn)(void *), void *arg) {
  * @return Only returns once the task returns
  */
 void thr_wait(int tid) {
-    (void) tid;
+    (void)tid;
     return;
 }
 
@@ -297,4 +299,3 @@ void thr_finish() {
         pthread_join(OS_THREADS[i], NULL);
     }
 }
-

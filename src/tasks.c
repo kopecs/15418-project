@@ -10,13 +10,20 @@
 /** Index of task costs */
 struct task_cost *task_index;
 
-void task_cost_measure(struct task *t) {
+clock_t task_cost_measure(struct task *t) {
     clock_t start, end;
+
+    clock_t c = task_cost_get_from_tid(t->tid);
+    if (c != -1) {
+        return c;
+    }
+
+    // TODO: check for fn and arg being the same but in differnt task
 
     // Allocate index node
     struct task_cost *cost = malloc(sizeof(struct task_cost));
     if (!cost) {
-        return;
+        return -1;
     }
 
     // Initialize index node
@@ -35,6 +42,8 @@ void task_cost_measure(struct task *t) {
     // Update index
     cost->next = task_index;
     task_index = cost;
+
+    return cost->cost;
 }
 
 clock_t task_cost_get_from_task(struct task *t) {

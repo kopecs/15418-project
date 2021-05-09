@@ -29,6 +29,7 @@
 struct thread_queue {
     int tid;              /**< Thread id */
     int num_tasks;        /**< Number of tasks in queue */
+    clock_t total_cost;   /**< Total cost of workers in the thread queue */
     pthread_mutex_t lock; /**< Queue lock */
     struct task *queue;   /**< Queue of tasks */
 };
@@ -39,6 +40,7 @@ struct thread_queue {
  */
 struct work_queue {
     int num_tasks;         /**< Number of tasks in queue */
+    clock_t total_cost;    /**< Total cost of workers in the global queue */
     struct task *queue;    /**< Task queue */
     pthread_mutex_t lock;  /**< Queue lock */
 };
@@ -108,16 +110,22 @@ void thr_execute(struct task *t) {
     // Execute the work
     t->fn(t->arg);
 
-    // Remove task from the work queue
+    // Remove task from the global work queue
     pthread_mutex_lock(&WQ->lock);
     struct task *curr = WQ->queue;
     while (curr->next != t) {
         curr = curr->next;
     }
 
-    // TODO: uninitialize mutex and free the task
-
+    // Update the work queue
     curr->next = t->next;
+
+    // TODO: remove task from local work queue
+
+    // Free the task
+    // TODO: this probably isn't right
+    pthread_mutex_destroy(&t->lock);
+    free(t);
     pthread_mutex_unlock(&WQ->lock);
 }
 
@@ -128,8 +136,35 @@ void thr_execute(struct task *t) {
  * @return Number of tasks added to the queue
  */
 int request_tasks(struct thread_queue *tq) {
-    (void) tq;
-    return 0;
+    int tasks_added = 0;
+
+    // TODO: fine grained locking
+    pthread_mutex_lock(&WQ->lock);
+
+    // If there are no tasks in the global queue, no work can be added
+    if (WQ->num_tasks == 0) {
+        pthread_mutex_unlock(&WQ->lock);
+        return 0;
+    }
+
+    // TODO: calculate the number of tasks to add, for now only adding one
+
+    // pop task off of work queue
+    struct task *t = WQ->queue;
+    WQ->queue = t->next;
+
+    // add task to thread queue
+    pthread_mutex_lock(&tq->lock);
+    t->next = tq->queue;
+    tq->queue = t;
+
+    // Update status of task
+    t->thread = tq->tid;
+    pthread_mutex_unlock(&tq->lock);
+    tasks_added++;
+
+    pthread_mutex_unlock(&WQ->lock);
+    return tasks_added;
 }
 
 /**

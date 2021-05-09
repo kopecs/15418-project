@@ -79,6 +79,36 @@ MAYBE_UNUSED static inline struct task *get_task(int tid) {
 }
 
 /**
+ * @brief Insert a task into the global queue
+ *
+ * This queue is sorted from highest cost to lowest cost
+ *
+ * @param t The task to add
+ */
+static inline void work_queue_insert(struct task *t) {
+    struct task *prev = WQ->queue;
+    struct task *curr = prev->next;
+
+    // Check if t is greatest cost
+    if (t->cost > prev->cost) {
+        t->next = prev;
+        WQ->queue = t;
+        return;
+    }
+
+    // Loop through to find position of t
+    while (curr!= NULL) {
+        if (t->cost > curr->cost) {
+            prev->next = t;
+            t->next = curr;
+        }
+
+        prev = curr;
+        curr = curr->next;
+    }
+}
+
+/**
  * @brief Pop a task from a thread queue
  * @param tq The queue to pop from
  * @return The popped task
@@ -246,6 +276,7 @@ void thr_init(void) {
  * @return The task's id
  */
 int thr_add(void *(*fn)(void *), void *arg) {
+    // This lock is wrong
     pthread_mutex_lock(&WQ->lock);
 
     // Create new task
@@ -268,8 +299,10 @@ int thr_add(void *(*fn)(void *), void *arg) {
     t->next = WQ->queue;
 
     // Update global queue
-    WQ->num_tasks++;
-    WQ->queue = t;
+    work_queue_insert(t);
+    /*WQ->num_tasks++;
+    WQ->queue = t;*/
+    // TODO: this unlock is wrong
     pthread_mutex_unlock(&WQ->lock);
 
     return t->tid;
@@ -277,14 +310,17 @@ int thr_add(void *(*fn)(void *), void *arg) {
 
 /**
  * @brief Wait for a task to complete
- * TODO
  * @param tid Task id to wait for
+ * @param[out] ret The return value of the task
  * @return Only returns once the task returns
  */
 void thr_wait(int tid, void **ret) {
     struct task *t = get_task(tid);
+
+    // Wait for task to be done
     while (!t->done);
 
+    // Update return value
     if (ret != NULL) {
         *ret = t->ret;
     }

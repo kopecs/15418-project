@@ -10,6 +10,11 @@
 /** Index of task costs */
 struct task_cost *task_index;
 
+/**
+ * @brief Measure the cost of a task and insert it into the index
+ * @param t The task to measure
+ * @return The task cost
+ */
 clock_t task_cost_measure(struct task *t) {
     clock_t start, end;
 
@@ -46,12 +51,24 @@ clock_t task_cost_measure(struct task *t) {
     return cost->cost;
 }
 
+/**
+ * @brief Get the cost from a task
+ * @param t The task
+ * @return The cost, -1 if the task has not been measured
+ */
 clock_t task_cost_get_from_task(struct task *t) {
     return task_cost_get_from_tid(t->tid);
 }
 
+/**
+ * @brief Get a tasks's cost from it's task id
+ * @param tid The task id
+ * @return The task's cost, -1 if the task has not been measured
+ */
 clock_t task_cost_get_from_tid(int tid) {
     struct task_cost *curr = task_index;
+
+    // Search until matching tid is found
     while (curr != NULL) {
         if (curr->tid == tid) {
             return curr->cost;
@@ -59,15 +76,25 @@ clock_t task_cost_get_from_tid(int tid) {
         curr = curr->next;
     }
 
+    // Task not found
     return -1;
 }
 
+/**
+ * @brief Create a task
+ * @param fn The task's function
+ * @param arg The task's argument
+ * @param tid The task's id
+ * @return Task struct
+ */
 struct task *task_create(void *(*fn)(void *), void *arg, int tid) {
+    // Allocate task
     struct task *t = malloc(sizeof(struct task));
     if (!t) {
         return NULL;
     }
 
+    // Initialize task
     t->tid = tid;
     t->fn = fn;
     t->arg = arg;

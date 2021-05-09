@@ -82,6 +82,7 @@ MAYBE_UNUSED static inline struct task *get_task(int tid) {
  * @brief Insert a task into the global queue
  *
  * This queue is sorted from highest cost to lowest cost
+ * TODO: locking
  *
  * @param t The task to add
  */

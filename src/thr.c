@@ -82,34 +82,59 @@ MAYBE_UNUSED static inline struct task *get_task(int tid) {
  * @brief Insert a task into the global queue
  *
  * This queue is sorted from highest cost to lowest cost
- * TODO: locking
+ *
+ * This list uses fine grained hand-over-hand locking
  *
  * @param t The task to add
  */
 static inline void work_queue_insert(struct task *t) {
+    pthread_mutex_lock(&WQ->lock);
     struct task *prev = WQ->queue;
     struct task *curr = prev->next;
 
-    // Check if t is greatest cost
-    if (t->cost > prev->cost) {
-        t->next = prev;
+    // If list is empty
+    if (prev == NULL) {
         WQ->queue = t;
+        WQ->num_tasks = 1;
+        WQ->total_cost = t->cost;
+        pthread_mutex_unlock(&WQ->lock);
         return;
     }
 
+    // Check if cost(t) > max cost in list
+    if (t->cost > prev->cost) {
+        t->next = prev;
+        WQ->queue = t;
+
+        // Update work queue
+        WQ->num_tasks++;
+        WQ->total_cost += t->cost;
+        pthread_mutex_unlock(&WQ->lock);
+        return;
+    }
+
+    pthread_mutex_lock(&prev->lock);
+    pthread_mutex_unlock(&WQ->lock);
     // Loop through to find position of t
-    while (curr!= NULL) {
+    while (curr != NULL) {
+        pthread_mutex_lock(&curr->lock);
+
         if (t->cost > curr->cost) {
             prev->next = t;
             t->next = curr;
         }
 
+        pthread_mutex_unlock(&prev->lock);
         prev = curr;
         curr = curr->next;
     }
+    pthread_mutex_unlock(&curr->lock);
 
+    // Update work queue
+    pthread_mutex_lock(&WQ->lock);
     WQ->num_tasks++;
     WQ->total_cost += t->cost;
+    pthread_mutex_unlock(&WQ->lock);
 }
 
 /**
@@ -304,7 +329,8 @@ void thr_wait(int tid, void **ret) {
     struct task *t = get_task(tid);
 
     // Wait for task to be done
-    while (!t->done);
+    while (!t->done)
+        ;
 
     // Update return value
     if (ret != NULL) {

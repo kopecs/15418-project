@@ -2,8 +2,8 @@
  * @file task_index.c
  */
 
-#include <time.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "tasks.h"
 
@@ -61,4 +61,3 @@ clock_t task_cost_get_from_tid(int tid) {
 
     return -1;
 }
-

@@ -108,7 +108,9 @@ static struct task *task_pop(struct thread_queue *tq) {
  */
 void thr_execute(struct task *t) {
     // Execute the work
+    t->executing = true;
     t->ret = t->fn(t->arg);
+    t->done = true;
 
     // Remove task from the global work queue
     pthread_mutex_lock(&WQ->lock);
@@ -122,10 +124,6 @@ void thr_execute(struct task *t) {
 
     // TODO: remove task from local work queue
 
-    // Free the task
-    // TODO: this probably isn't right
-    pthread_mutex_destroy(&t->lock);
-    free(t);
     pthread_mutex_unlock(&WQ->lock);
 }
 
@@ -265,6 +263,7 @@ int thr_add(void *(*fn)(void *), void *arg) {
     t->blocked = false;
     t->thread = -1;
     t->executing = false;
+    t->done = false;
     pthread_mutex_init(&t->lock, NULL);
     t->next = WQ->queue;
 
@@ -282,9 +281,13 @@ int thr_add(void *(*fn)(void *), void *arg) {
  * @param tid Task id to wait for
  * @return Only returns once the task returns
  */
-void thr_wait(int tid) {
-    (void)tid;
-    return;
+void thr_wait(int tid, void **ret) {
+    struct task *t = get_task(tid);
+    while (!t->done);
+
+    if (ret != NULL) {
+        *ret = t->ret;
+    }
 }
 
 /**

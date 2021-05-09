@@ -28,6 +28,6 @@ int thr_add(void *(*fn)(void *), void *arg);
  * @brief Wait for a thread to complete
  * @param tid The thread to wait for
  */
-void thr_wait(int tid);
+void thr_wait(int tid, void **ret);
 
 #endif /* C0_THR_H */

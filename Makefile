@@ -19,6 +19,10 @@ $(ODIR)/%.o: $(SDIR)/%.c
 $(BDIR)/thr: $(OBJS)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 
+.PHONY: format
+format:
+	clang-format -i -style=file $(SRCS)
+
 .PHONY: clean
 clean:
 	rm -f obj/*

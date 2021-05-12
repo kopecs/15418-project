@@ -38,6 +38,7 @@ MAYBE_UNUSED static inline void debug_printf(const char *format, ...) {
     va_list args;
 
 #ifdef DBG_PRNT
+    printf("[DBG] ");
     va_start(args, format);
     vprintf(format, args);
     va_end(args);
@@ -74,7 +75,7 @@ struct work_queue {
 pthread_t OS_THREADS[NUM_OS_THRS];
 
 /** Boolean to keep track if execution has been marked as done */
-bool DONE = false;
+atomic_bool DONE = false;
 
 /** Global work queue of all tasks*/
 struct work_queue *WQ;
@@ -93,35 +94,6 @@ MAYBE_UNUSED static inline int max(int x, int y) { return x > y ? x : y; }
 
 /** @brief Find the min of two ints */
 MAYBE_UNUSED static inline int min(int x, int y) { return x < y ? x : y; }
-
-/**
- * @brief Get task struct from task id
- * @param tid Task id
- * @return Task struct corresponding with tid
- */
-MAYBE_UNUSED static inline struct task *get_task(int tid) {
-    struct task *curr = NULL;
-    int thread = task_map_get_thread_id(tid);
-
-    if (thread == -1) {
-        // TODO: locking
-        pthread_mutex_lock(&WQ->lock);
-
-        curr = WQ->queue;
-        while (curr != NULL) {
-            if (curr->tid == tid) {
-                break;
-            }
-        }
-
-        pthread_mutex_unlock(&WQ->lock);
-    } else {
-        struct thread_queue *tq = &THREAD_QUEUES[thread];
-        // TODO: loop through thread queue to find task
-    }
-
-    return curr;
-}
 
 /**
  * @brief Insert a task into the global queue
@@ -171,13 +143,25 @@ static inline void work_queue_insert(struct task *t) {
         if (t->cost > curr->cost) {
             prev->next = t;
             t->next = curr;
+
+            WQ->num_tasks++;
+            WQ->total_cost += t->cost;
         }
 
         pthread_mutex_unlock(&prev->lock);
         prev = curr;
         curr = curr->next;
     }
-    pthread_mutex_unlock(&curr->lock);
+
+    if (curr == NULL) {
+        prev->next = t;
+        t->next = NULL;
+        WQ->num_tasks++;
+        WQ->total_cost += t->cost;
+        pthread_mutex_unlock(&prev->lock);
+    } else {
+        pthread_mutex_unlock(&curr->lock);
+    }
 
     // Update work queue
     pthread_mutex_lock(&WQ->lock);
@@ -198,7 +182,7 @@ void done_queue_insert(struct task *t) {
     DQ->queue = t;
 
     DQ->num_tasks++;
-    task_map_update(t->tid, DONE_QUEUE_ID);
+    //task_map_update(t->tid, DONE_QUEUE_ID);
     pthread_mutex_unlock(&DQ->lock);
 }
 
@@ -232,9 +216,9 @@ static struct task *task_pop(struct thread_queue *tq) {
  */
 void thr_execute(struct task *t) {
     debug_printf("%s\n", "Executing a task");
-    struct thread_queue *tq = &THREAD_QUEUES[t->thread];
-    struct task *prev;
-    struct task *curr;
+    //struct thread_queue *tq = &THREAD_QUEUES[t->thread];
+    //struct task *prev;
+    //struct task *curr;
 
     pthread_mutex_lock(&t->lock);
 
@@ -293,7 +277,7 @@ void thread_queue_insert(struct thread_queue *tq, struct task *t) {
     tq->num_tasks++;
     tq->total_cost += t->cost;
 
-    task_map_update(t->tid, t->thread);
+    //task_map_update(t->tid, t->thread);
 
     pthread_mutex_unlock(&tq->lock);
 }
@@ -548,7 +532,7 @@ int thr_add(void *(*fn)(void *), void *arg) {
     struct task *t = task_create(fn, arg, TASK_COUNTER);
 
     // Insert into the task map, thread of -1 signifies global queue
-    task_map_add(TASK_COUNTER, -1);
+    task_map_add(TASK_COUNTER, t);
 
     // Increment number of tasks
     TASK_COUNTER++;
@@ -566,7 +550,8 @@ int thr_add(void *(*fn)(void *), void *arg) {
  * @return Only returns once the task returns
  */
 void thr_wait(int tid, void **ret) {
-    struct task *t = get_task(tid);
+    //struct task *t = get_task(tid);
+    struct task *t = task_map_find(tid);
 
     // Wait for task to be done
     while (!t->done)

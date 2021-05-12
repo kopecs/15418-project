@@ -13,12 +13,12 @@ struct task_cost *task_index;
 
 struct task_map {
     int task_id;
-    int thread_id;
+    struct task *t;
     struct task_map *next;
 };
 
 struct task_map *MAP;
-pthread_mutex_t TASK_MAP_LOCK = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t TASK_MAP_LOCK = PTHREAD_MUTEX_INITIALIZER;
 
 /**
  * @brief Measure the cost of a task and insert it into the index
@@ -47,6 +47,7 @@ clock_t task_cost_measure(struct task *t) {
     cost->tid = t->tid;
 
     // Measure function execution time
+    printf("[DBG] Measuring the cost of a task\n");
     start = clock();
     t->fn(t->arg);
     end = clock();
@@ -119,16 +120,19 @@ struct task *task_create(void *(*fn)(void *), void *arg, int tid) {
     return t;
 }
 
-void task_map_add(int task_id, int thread_id) {
+void task_map_add(int task_id, struct task *t) {
     struct task_map *tm = malloc(sizeof(struct task_map));
     if (!tm) {
         return;
     }
 
+    pthread_mutex_lock(&TASK_MAP_LOCK);
+
     tm->task_id = task_id;
-    tm->thread_id = thread_id;
+    tm->t = t;
     tm->next = MAP;
     MAP = tm;
+    pthread_mutex_unlock(&TASK_MAP_LOCK);
 }
 
 /**
@@ -139,35 +143,17 @@ void task_map_add(int task_id, int thread_id) {
  * @param task_id The task to find
  * @return The task map entry
  */
-static struct task_map *task_map_find(int task_id) {
+struct task *task_map_find(int task_id) {
     struct task_map *curr = MAP;
 
     while (curr != NULL) {
         if (curr->task_id == task_id) {
-            pthread_mutex_unlock(&TASK_MAP_LOCK);
-            return curr;
+            return curr->t;
         }
+        curr = curr->next;
     }
 
     // Couldn't find the task
     return NULL;
 }
 
-void task_map_update(int task_id, int thread_id) {
-    pthread_mutex_lock(&TASK_MAP_LOCK);
-    struct task_map *tm = task_map_find(task_id);
-    if (tm == NULL) {
-        fprintf(stderr, "Couldn't find task while updating map\n");
-        return;
-    }
-
-    tm->thread_id = thread_id;
-    pthread_mutex_unlock(&TASK_MAP_LOCK);
-}
-
-int task_map_get_thread_id(int task_id) {
-    pthread_mutex_lock(&TASK_MAP_LOCK);
-    struct task_map *tm = task_map_find(task_id);
-    pthread_mutex_unlock(&TASK_MAP_LOCK);
-    return tm->thread_id;
-}

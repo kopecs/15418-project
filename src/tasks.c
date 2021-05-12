@@ -25,7 +25,7 @@ static pthread_mutex_t TASK_MAP_LOCK = PTHREAD_MUTEX_INITIALIZER;
  * @param t The task to measure
  * @return The task cost
  */
-clock_t task_cost_measure(struct task *t) {
+clock_t task_cost_measure(struct task *t, clock_t given_cost) {
     clock_t start, end;
 
     clock_t c = task_cost_get_from_tid(t->tid);
@@ -48,6 +48,11 @@ clock_t task_cost_measure(struct task *t) {
 
     // Measure function execution time
     printf("[DBG] Measuring the cost of a task\n");
+
+    cost->cost = given_cost;
+    cost->next = task_index;
+    task_index = cost;
+    return cost->cost;
     start = clock();
     t->fn(t->arg);
     end = clock();
@@ -98,7 +103,8 @@ clock_t task_cost_get_from_tid(int tid) {
  * @param tid The task's id
  * @return Task struct
  */
-struct task *task_create(void *(*fn)(void *), void *arg, int tid) {
+struct task *task_create(void *(*fn)(void *), void *arg, int tid,
+                         clock_t cost) {
     // Allocate task
     struct task *t = malloc(sizeof(struct task));
     if (!t) {
@@ -109,7 +115,7 @@ struct task *task_create(void *(*fn)(void *), void *arg, int tid) {
     t->tid = tid;
     t->fn = fn;
     t->arg = arg;
-    t->cost = task_cost_measure(t);
+    t->cost = task_cost_measure(t, cost);
     t->blocked = false;
     t->thread = -1;
     t->executing = false;
@@ -156,4 +162,3 @@ struct task *task_map_find(int task_id) {
     // Couldn't find the task
     return NULL;
 }
-

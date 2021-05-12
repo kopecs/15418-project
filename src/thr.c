@@ -14,6 +14,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "tasks.h"
@@ -24,7 +25,7 @@
 /** Max number of threads */
 #define MAX_THRS (32)
 /** Number of os threads used */
-#define NUM_OS_THRS (1)
+#define NUM_OS_THRS (2)
 /** Threshold for task cost to be stolen */
 #define COST_THRESHOLD (3)
 /** Identifier for tasks in the work queue */
@@ -58,6 +59,7 @@ struct thread_queue {
     clock_t total_cost;   /**< Total cost of workers in the thread queue */
     pthread_mutex_t lock; /**< Queue lock */
     struct task *queue;   /**< Queue of tasks */
+    // struct task *tail;    /**< Queue tail */
 };
 
 /**
@@ -65,14 +67,17 @@ struct thread_queue {
  * @brief Information about the work queue
  */
 struct work_queue {
-    int num_tasks;        /**< Number of tasks in queue */
-    clock_t total_cost;   /**< Total cost of workers in the global queue */
-    struct task *queue;   /**< Task queue */
-    pthread_mutex_t lock; /**< Queue lock */
+    int num_tasks;          /**< Number of tasks in queue */
+    atomic_int total_tasks; /**< Total tasks being executed */
+    clock_t total_cost;     /**< Total cost of workers in the global queue */
+    struct task *queue;     /**< Task queue */
+    pthread_mutex_t lock;   /**< Queue lock */
 };
 
 /** Array of worker threads */
 pthread_t OS_THREADS[NUM_OS_THRS];
+
+atomic_bool STARTED = false;
 
 /** Boolean to keep track if execution has been marked as done */
 atomic_bool DONE = false;
@@ -105,7 +110,6 @@ MAYBE_UNUSED void print_wq() {
     pthread_mutex_unlock(&WQ->lock);
 }
 
-
 /**
  * @brief Insert a task into the global queue
  *
@@ -133,12 +137,13 @@ static inline void work_queue_insert(struct task *t) {
     curr = prev->next;
 
     // Check if cost(t) > max cost in list
-    if (t->cost > prev->cost) {
+    if (t->cost < prev->cost) {
         t->next = prev;
         WQ->queue = t;
 
         // Update work queue
         WQ->num_tasks++;
+        WQ->total_tasks++;
         WQ->total_cost += t->cost;
         pthread_mutex_unlock(&WQ->lock);
         return;
@@ -152,7 +157,7 @@ static inline void work_queue_insert(struct task *t) {
     while (curr != NULL) {
         pthread_mutex_lock(&curr->lock);
 
-        if (t->cost > curr->cost) {
+        if (t->cost < curr->cost) {
             prev->next = t;
             t->next = curr;
             pthread_mutex_unlock(&prev->lock);
@@ -180,6 +185,7 @@ static inline void work_queue_insert(struct task *t) {
     // Update work queue
     pthread_mutex_lock(&WQ->lock);
     WQ->num_tasks++;
+    WQ->total_tasks++;
     WQ->total_cost += t->cost;
     pthread_mutex_unlock(&WQ->lock);
 }
@@ -196,7 +202,7 @@ void done_queue_insert(struct task *t) {
     DQ->queue = t;
 
     DQ->num_tasks++;
-    //task_map_update(t->tid, DONE_QUEUE_ID);
+    // task_map_update(t->tid, DONE_QUEUE_ID);
     pthread_mutex_unlock(&DQ->lock);
 }
 
@@ -219,7 +225,12 @@ static struct task *task_pop(struct thread_queue *tq) {
     tq->num_tasks--;
     t = tq->queue;
     tq->total_cost -= t->cost;
+    /*if (tq-> queue == tq->tail) {
+        tq->queue = NULL;
+        tq->tail = NULL;
+    } else {*/
     tq->queue = t->next;
+    //}
 
     pthread_mutex_unlock(&tq->lock);
     return t;
@@ -230,10 +241,10 @@ static struct task *task_pop(struct thread_queue *tq) {
  * @param tid Task id to execute
  */
 void thr_execute(struct task *t) {
-    //debug_printf("%s\n", "Executing a task");
-    //struct thread_queue *tq = &THREAD_QUEUES[t->thread];
-    //struct task *prev;
-    //struct task *curr;
+    debug_printf("Executing id %d\n", t->tid);
+    // struct thread_queue *tq = &THREAD_QUEUES[t->thread];
+    // struct task *prev;
+    // struct task *curr;
 
     pthread_mutex_lock(&t->lock);
 
@@ -270,6 +281,10 @@ static inline struct thread_queue *find_busiest_queue() {
         }
     }
 
+    if (best_queue->num_tasks == 0) {
+        return NULL;
+    }
+
     return best_queue;
 }
 
@@ -283,17 +298,29 @@ static inline struct thread_queue *find_busiest_queue() {
  * @return Success status
  */
 void thread_queue_insert(struct thread_queue *tq, struct task *t) {
-    debug_printf("Inserting task %d into the queue\n", t->tid);
+    debug_printf("Inserting task %d into queue %d\n", t->tid, tq->tid);
     pthread_mutex_lock(&tq->lock);
+    assert(t != tq->queue);
+    // assert(t != tq->tail);
 
-    t->next = tq->queue;
     t->thread = tq->tid;
+    /*t->next = tq->queue;
+    tq->queue = t;*/
+
+    // if (tq->queue == NULL) {
+    t->next = tq->queue;
     tq->queue = t;
+    // tq->tail = t;
+    /*} else {
+        struct task *tail = tq->tail;
+        pthread_mutex_lock(&tail->lock);
+        tq->tail->next = t;
+        tq->tail = t;
+        pthread_mutex_unlock(&tail->lock);
+    }*/
 
     tq->num_tasks++;
     tq->total_cost += t->cost;
-
-    //task_map_update(t->tid, t->thread);
 
     pthread_mutex_unlock(&tq->lock);
 }
@@ -308,6 +335,7 @@ void thread_queue_insert(struct thread_queue *tq, struct task *t) {
  * @return Success status
  */
 int steal_tasks(struct thread_queue *from, struct thread_queue *to) {
+    debug_printf("%d Stealing from %d\n", to->tid, from->tid);
     struct task *curr;
     struct task *prev;
 
@@ -366,6 +394,10 @@ int steal_tasks(struct thread_queue *from, struct thread_queue *to) {
 
             // Insert curr to stealer
             thread_queue_insert(to, curr);
+
+            pthread_mutex_unlock(&prev->lock);
+            pthread_mutex_unlock(&curr->lock);
+            break;
         }
 
         if (prev != NULL) {
@@ -385,6 +417,7 @@ int steal_tasks(struct thread_queue *from, struct thread_queue *to) {
  * @return Number of tasks added to the queue
  */
 int request_tasks(struct thread_queue *tq) {
+    // debug_printf("Requesting\n");
     int tasks_added = 0;
     int num_to_add;
 
@@ -393,61 +426,32 @@ int request_tasks(struct thread_queue *tq) {
     pthread_mutex_lock(&WQ->lock);
 
     // If there are no tasks in the global queue, no work can be added
-    if (WQ->num_tasks == 0) {
-        pthread_mutex_unlock(&WQ->lock);
-        return 0;
-    }
-
-    // Add at least one task, but take a proportional number of tasks to the
-    // number of threads
-    num_to_add = max(WQ->num_tasks / NUM_OS_THRS, 1);
-    debug_printf("%d Num to add is %d\n", WQ->num_tasks, num_to_add);
-
-    while (tasks_added < num_to_add && WQ->queue != NULL) {
-        struct task *t;
-
-        WQ->num_tasks--;
-        t = WQ->queue;
-        if (t != NULL) {
-            pthread_mutex_lock(&t->lock);
-            WQ->queue = t->next;
-            thread_queue_insert(tq, t);
-            pthread_mutex_unlock(&t->lock);
-            tasks_added++;
+    if (WQ->num_tasks != 0) {
+        // Add at least one task, but take a proportional number of tasks to the
+        // number of threads
+        num_to_add = max((WQ->total_tasks / NUM_OS_THRS) + 1, 1);
+        if (WQ->num_tasks == 0) {
+            num_to_add = 0;
         }
+        // debug_printf("%d Num to add is %d\n", WQ->total_tasks, num_to_add);
 
-        // TODO: is this right?
-        /*struct task *curr = WQ->queue;
-        if (curr != NULL) {
-            WQ->queue = curr->next;
+        while (tasks_added < num_to_add && WQ->queue != NULL) {
+            struct task *t;
+
             WQ->num_tasks--;
-            WQ->total_cost -= curr->cost;
-
-            pthread_mutex_lock(&curr->lock);
-            thread_queue_insert(tq, curr);
-            pthread_mutex_unlock(&curr->lock);
-
-            tasks_added++;
-        }*/
+            t = WQ->queue;
+            if (t != NULL) {
+                pthread_mutex_lock(&t->lock);
+                WQ->queue = t->next;
+                thread_queue_insert(tq, t);
+                pthread_mutex_unlock(&t->lock);
+                tasks_added++;
+            }
+        }
+        pthread_mutex_unlock(&WQ->lock);
+    } else {
+        pthread_mutex_unlock(&WQ->lock);
     }
-
-    // pop task off of work queue
-    /*struct task *t = WQ->queue;
-    pthread_mutex_lock(&t->lock);
-    WQ->queue = t->next;
-    pthread_mutex_unlock(&t->lock);
-
-    // add task to thread queue
-    pthread_mutex_lock(&tq->lock);
-    t->next = tq->queue;
-    tq->queue = t;
-
-    // Update status of task
-    t->thread = tq->tid;
-    pthread_mutex_unlock(&tq->lock);
-    tasks_added++;*/
-
-    pthread_mutex_unlock(&WQ->lock);
 
     // If there are no tasks in the global queue, steal a task from another
     // thread
@@ -456,7 +460,7 @@ int request_tasks(struct thread_queue *tq) {
 
         // If the searcher is the busiest queue, that means all other queues are
         // empty too as the searcher must be empty to get here
-        if (target == tq) {
+        if (target == tq || target == NULL) {
             return 0;
         } else {
             tasks_added += steal_tasks(target, tq);
@@ -482,15 +486,23 @@ void *worker(void *arg) {
             return NULL;
         }
 
+        while (!STARTED)
+            ;
+
+        pthread_mutex_lock(&tq->lock);
         if (tq->num_tasks == 0) {
+            pthread_mutex_unlock(&tq->lock);
+            request_tasks(tq);
             // Check if there is work to take from the global queue
-            if (request_tasks(tq) == 0) {
-                // No work; sleep TODO: maybe add a convar
-                sleep(sleep_time);
+            /*if (request_tasks(tq) == 0) {
+                // No work; sleep
+                //sleep(sleep_time);
                 sleep_time *= 2;
             } else {
                 sleep_time = 1;
-            }
+            }*/
+        } else {
+            pthread_mutex_unlock(&tq->lock);
         }
 
         // Get task from queue
@@ -529,6 +541,7 @@ void thr_init(void) {
 
     // Initialize global queues
     WQ->num_tasks = 0;
+    WQ->total_tasks = 0;
     WQ->queue = NULL;
     pthread_mutex_init(&WQ->lock, NULL);
 
@@ -545,6 +558,7 @@ void thr_init(void) {
         tq->num_tasks = 0;
         pthread_mutex_init(&tq->lock, NULL);
         tq->queue = NULL;
+        // tq->tail = NULL;
 
         // Create worker thread
         pthread_create(&OS_THREADS[i], NULL, worker, &THREAD_QUEUES[i]);
@@ -557,9 +571,9 @@ void thr_init(void) {
  * @param arg Arguments to the function
  * @return The task's id
  */
-int thr_add(void *(*fn)(void *), void *arg) {
+int thr_add(void *(*fn)(void *), void *arg, clock_t cost) {
     // Allocate the task (pass the number of tasks as the task id
-    struct task *t = task_create(fn, arg, TASK_COUNTER);
+    struct task *t = task_create(fn, arg, TASK_COUNTER, cost);
 
     // Insert into the task map, thread of -1 signifies global queue
     task_map_add(TASK_COUNTER, t);
@@ -580,7 +594,7 @@ int thr_add(void *(*fn)(void *), void *arg) {
  * @return Only returns once the task returns
  */
 void thr_wait(int tid, void **ret) {
-    //struct task *t = get_task(tid);
+    // struct task *t = get_task(tid);
     struct task *t = task_map_find(tid);
 
     // Wait for task to be done
@@ -591,6 +605,8 @@ void thr_wait(int tid, void **ret) {
     if (ret != NULL) {
         *ret = t->ret;
     }
+
+    WQ->total_tasks--;
 
     // TODO: free task
 }
@@ -609,3 +625,5 @@ void thr_finish() {
         pthread_join(OS_THREADS[i], NULL);
     }
 }
+
+void thr_start() { STARTED = true; }

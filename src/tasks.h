@@ -31,13 +31,13 @@ struct task {
     struct task *next;     /**< Next task in queue */
 };
 
-clock_t task_cost_measure(struct task *t);
+clock_t task_cost_measure(struct task *t, clock_t given_cost);
 
 clock_t task_cost_get_from_task(struct task *t);
 
 clock_t task_cost_get_from_tid(int tid);
 
-struct task *task_create(void *(*fn)(void *), void *arg, int tid);
+struct task *task_create(void *(*fn)(void *), void *arg, int tid, clock_t cost);
 
 void task_map_add(int task_id, struct task *t);
 

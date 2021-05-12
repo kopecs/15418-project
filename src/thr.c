@@ -20,8 +20,12 @@
 
 #define MAYBE_UNUSED __attribute__((unused))
 
+/** Max number of threads */
 #define MAX_THRS (32)
+/** Number of os threads used */
 #define NUM_OS_THRS (4)
+/** Threshold for task cost to be stolen */
+#define COST_THRESHOLD (3)
 
 /**
  * @brief Queue for individual OS threads
@@ -113,8 +117,10 @@ static inline void work_queue_insert(struct task *t) {
         return;
     }
 
+    // Lock individual node, unlock queue lock
     pthread_mutex_lock(&prev->lock);
     pthread_mutex_unlock(&WQ->lock);
+
     // Loop through to find position of t
     while (curr != NULL) {
         pthread_mutex_lock(&curr->lock);
@@ -187,6 +193,106 @@ void thr_execute(struct task *t) {
 }
 
 /**
+ * @brief Insert a task into a task queue
+ * @param tq The queue to insert into
+ * @param t The task to insert
+ * @return Success status
+ */
+int thread_queue_insert(struct thread_queue *tq, struct task *t) {
+    return 0;
+}
+
+/**
+ * @brief The to queue steals a task from the from queue
+ *
+ * This uses hand over hand locking
+ *
+ * @param from The list being stolen from
+ * @param to The stealer
+ * @return Success status
+ */
+int steal_task(struct thread_queue *from, struct thread_queue *to) {
+    struct task *curr;
+    struct task *prev;
+
+    if (!from || !to) {
+        return -1;
+    }
+
+    pthread_mutex_lock(&from->lock);
+    if (from->queue == NULL) {
+        pthread_mutex_unlock(&from->lock);
+        return -1;
+    }
+
+    pthread_mutex_lock(&from->queue->lock);
+
+    // Check if head element is above threshold
+    if (from->queue->cost * COST_THRESHOLD >= from->total_cost) {
+        curr = from->queue;
+
+        // Update queue being stolen from
+        from->queue = curr->next;
+        from->total_cost -= curr->cost;
+        from->num_tasks--;
+
+        pthread_mutex_unlock(&from->lock);
+
+        // Add to stealer's queue
+        pthread_mutex_lock(&to->lock);
+
+        // If we are stealing, the queue should be empty TODO not necessarily
+        // true in the future
+        assert(to->queue == NULL);
+
+        // Update stealer's queue and curr next pointer
+        curr->next = to->queue;
+        to->queue = curr;
+        to->num_tasks++;
+        to->total_cost += curr->cost;
+
+        pthread_mutex_unlock(&curr->lock);
+        pthread_mutex_unlock(&to->lock);
+
+        return 0;
+    }
+
+    curr = from->queue->next;
+    prev = from->queue;
+
+    while (curr != NULL) {
+        pthread_mutex_lock(&curr->lock);
+
+        // If curr > threshold or curr is the tail
+        if (curr->cost * COST_THRESHOLD >= from->total_cost ||
+            curr->next == NULL) {
+            // Remove curr from list
+            prev->next = curr->next;
+
+            // Update stolen from list
+            pthread_mutex_lock(&from->lock);
+            from->num_tasks--;
+            from->total_cost -= curr->cost;
+            pthread_mutex_unlock(&from->lock);
+
+            pthread_mutex_unlock(&prev->lock);
+
+            // Insert curr to stealer
+            // TODO: thread_queue_insert(to, curr);
+        }
+
+        if (prev != NULL) {
+            pthread_mutex_unlock(&prev->lock);
+        }
+
+        prev = curr;
+        curr = curr->next;
+    }
+
+    return 0;
+}
+
+/**
  * @brief Worker requests tasks from global queue
  * @param tq The queue for the worker
  * @return Number of tasks added to the queue
@@ -205,9 +311,16 @@ int request_tasks(struct thread_queue *tq) {
 
     // TODO: calculate the number of tasks to add, for now only adding one
 
+    // Fine grained stealing:
+    //   Find list with highest total cost
+    //     Find element with cost above threshold and remove it
+    //     otherwise remove the last element
+
     // pop task off of work queue
     struct task *t = WQ->queue;
+    pthread_mutex_lock(&t->lock);
     WQ->queue = t->next;
+    pthread_mutex_unlock(&t->lock);
 
     // add task to thread queue
     pthread_mutex_lock(&tq->lock);
@@ -305,16 +418,11 @@ void thr_init(void) {
  * @return The task's id
  */
 int thr_add(void *(*fn)(void *), void *arg) {
-    // This lock is wrong
-    pthread_mutex_lock(&WQ->lock);
-
+    // Allocate the task
     struct task *t = task_create(fn, arg, WQ->num_tasks);
-    t->next = WQ->queue;
 
-    // Update global queue
+    // Insert into the global work queue
     work_queue_insert(t);
-    // TODO: this unlock is wrong
-    pthread_mutex_unlock(&WQ->lock);
 
     return t->tid;
 }

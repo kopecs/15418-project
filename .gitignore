@@ -53,3 +53,6 @@ dkms.conf
 
 # Build folder
 bld/
+
+# Tags file
+tags

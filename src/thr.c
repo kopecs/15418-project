@@ -175,27 +175,42 @@ static struct task *task_pop(struct thread_queue *tq) {
 
 /**
  * @brief Have a thread execute a task
+ * TODO: this needs updating
  * @param tid Task id to execute
  */
 void thr_execute(struct task *t) {
+    struct thread_queue *tq = &THREAD_QUEUES[t->thread];
+    struct task *prev;
+    struct task *curr;
+
     // Execute the work
     t->executing = true;
     t->ret = t->fn(t->arg);
     t->done = true;
 
     // Remove task from the global work queue
+    // TODO: this should not be necessary
     pthread_mutex_lock(&WQ->lock);
-    struct task *curr = WQ->queue;
+    curr = WQ->queue;
     while (curr->next != t) {
         curr = curr->next;
     }
 
     // Update the work queue
     curr->next = t->next;
+    pthread_mutex_unlock(&WQ->lock);
 
     // TODO: remove task from local work queue
+    // fine grained remove
+    pthread_mutex_lock(&tq->lock);
 
-    pthread_mutex_unlock(&WQ->lock);
+    curr = tq->queue;
+    pthread_mutex_lock(&curr->lock);
+    if (curr == t) {
+        // TODO: remove
+    }
+
+    pthread_mutex_unlock(&tq->lock);
 }
 
 /**
@@ -236,6 +251,7 @@ void thread_queue_insert(struct thread_queue *tq, struct task *t) {
     pthread_mutex_lock(&tq->lock);
 
     t->next = tq->queue;
+    t->thread = tq->tid;
     tq->queue = t;
 
     tq->num_tasks++;
@@ -270,7 +286,8 @@ int steal_tasks(struct thread_queue *from, struct thread_queue *to) {
     pthread_mutex_lock(&from->queue->lock);
 
     // Check if head element is above threshold
-    if (from->queue->cost * COST_THRESHOLD >= from->total_cost) {
+    if (!from->queue->executing &&
+        from->queue->cost * COST_THRESHOLD >= from->total_cost) {
         curr = from->queue;
 
         // Update queue being stolen from
@@ -333,7 +350,8 @@ int request_tasks(struct thread_queue *tq) {
     int tasks_added = 0;
     int num_to_add;
 
-    // TODO: fine grained locking
+    // Fine grained locking isn't needed here as it is always popping off the
+    // front
     pthread_mutex_lock(&WQ->lock);
 
     // If there are no tasks in the global queue, no work can be added
@@ -346,8 +364,20 @@ int request_tasks(struct thread_queue *tq) {
     // number of threads
     num_to_add = max(WQ->num_tasks / NUM_OS_THRS, 1);
 
+    while (tasks_added < num_to_add && WQ->queue != NULL) {
+        // TODO: is this right?
+        struct task *curr = WQ->queue;
+        WQ->queue = curr->next;
+
+        pthread_mutex_lock(&curr->lock);
+        thread_queue_insert(tq, curr);
+        pthread_mutex_unlock(&curr->lock);
+
+        tasks_added++;
+    }
+
     // pop task off of work queue
-    struct task *t = WQ->queue;
+    /*struct task *t = WQ->queue;
     pthread_mutex_lock(&t->lock);
     WQ->queue = t->next;
     pthread_mutex_unlock(&t->lock);
@@ -360,7 +390,7 @@ int request_tasks(struct thread_queue *tq) {
     // Update status of task
     t->thread = tq->tid;
     pthread_mutex_unlock(&tq->lock);
-    tasks_added++;
+    tasks_added++;*/
 
     pthread_mutex_unlock(&WQ->lock);
 

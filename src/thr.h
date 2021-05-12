@@ -30,4 +30,9 @@ int thr_add(void *(*fn)(void *), void *arg);
  */
 void thr_wait(int tid, void **ret);
 
+/**
+ * @brief Cleanup threads
+ */
+void thr_finish(void);
+
 #endif /* C0_THR_H */

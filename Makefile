@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS = -Wall -Wextra
+CFLAGS = -Wall -Wextra -g -fsanitize=address
 ODIR = obj
 BDIR = bld
 SDIR = src

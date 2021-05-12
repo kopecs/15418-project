@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS = -Wall -Wextra -g -fsanitize=thread
+CFLAGS = -Wall -Wextra -g #-fsanitize=thread
 ODIR = obj
 BDIR = bld
 SDIR = src

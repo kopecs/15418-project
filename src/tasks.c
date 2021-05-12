@@ -2,6 +2,7 @@
  * @file task_index.c
  */
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
@@ -9,6 +10,15 @@
 
 /** Index of task costs */
 struct task_cost *task_index;
+
+struct task_map {
+    int task_id;
+    int thread_id;
+    struct task_map *next;
+};
+
+struct task_map *MAP;
+pthread_mutex_t TASK_MAP_LOCK = PTHREAD_MUTEX_INITIALIZER;
 
 /**
  * @brief Measure the cost of a task and insert it into the index
@@ -103,7 +113,61 @@ struct task *task_create(void *(*fn)(void *), void *arg, int tid) {
     t->thread = -1;
     t->executing = false;
     t->done = false;
+    t->next = NULL;
     pthread_mutex_init(&t->lock, NULL);
 
     return t;
+}
+
+void task_map_add(int task_id, int thread_id) {
+    struct task_map *tm = malloc(sizeof(struct task_map));
+    if (!tm) {
+        return;
+    }
+
+    tm->task_id = task_id;
+    tm->thread_id = thread_id;
+    tm->next = MAP;
+    MAP = tm;
+}
+
+/**
+ * @brief Find a task map entry
+ *
+ * @pre The task map is locked
+ *
+ * @param task_id The task to find
+ * @return The task map entry
+ */
+static struct task_map *task_map_find(int task_id) {
+    struct task_map *curr = MAP;
+
+    while (curr != NULL) {
+        if (curr->task_id == task_id) {
+            pthread_mutex_unlock(&TASK_MAP_LOCK);
+            return curr;
+        }
+    }
+
+    // Couldn't find the task
+    return NULL;
+}
+
+void task_map_update(int task_id, int thread_id) {
+    pthread_mutex_lock(&TASK_MAP_LOCK);
+    struct task_map *tm = task_map_find(task_id);
+    if (tm == NULL) {
+        fprintf(stderr, "Couldn't find task while updating map\n");
+        return;
+    }
+
+    tm->thread_id = thread_id;
+    pthread_mutex_unlock(&TASK_MAP_LOCK);
+}
+
+int task_map_get_thread_id(int task_id) {
+    pthread_mutex_lock(&TASK_MAP_LOCK);
+    struct task_map *tm = task_map_find(task_id);
+    pthread_mutex_unlock(&TASK_MAP_LOCK);
+    return tm->thread_id;
 }

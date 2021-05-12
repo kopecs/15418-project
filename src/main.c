@@ -7,7 +7,7 @@
 #include "thr.h"
 
 void *f(void *arg) {
-    (void) arg;
+    (void)arg;
     printf("Hello world\n");
     return NULL;
 }

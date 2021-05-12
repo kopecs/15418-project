@@ -27,6 +27,10 @@
 #define NUM_OS_THRS (1)
 /** Threshold for task cost to be stolen */
 #define COST_THRESHOLD (3)
+/** Identifier for tasks in the work queue */
+#define WORK_QUEUE_ID (-1)
+/** Identifier for tasks in the done queue */
+#define DONE_QUEUE_ID (-2)
 
 #define DBG_PRNT
 
@@ -75,6 +79,9 @@ bool DONE = false;
 /** Global work queue of all tasks*/
 struct work_queue *WQ;
 
+/** Global queue of all tasks that have finished execution */
+struct work_queue *DQ;
+
 /** Individual work thread queues */
 struct thread_queue THREAD_QUEUES[NUM_OS_THRS];
 
@@ -93,18 +100,26 @@ MAYBE_UNUSED static inline int min(int x, int y) { return x < y ? x : y; }
  * @return Task struct corresponding with tid
  */
 MAYBE_UNUSED static inline struct task *get_task(int tid) {
-    pthread_mutex_lock(&WQ->lock);
+    struct task *curr = NULL;
+    int thread = task_map_get_thread_id(tid);
 
-    // Loop through global tasks to find individual one
-    // TODO: maybe change this if tasks are removed from global queue
-    struct task *curr = WQ->queue;
-    while (curr != NULL) {
-        if (curr->tid == tid) {
-            break;
+    if (thread == -1) {
+        // TODO: locking
+        pthread_mutex_lock(&WQ->lock);
+
+        curr = WQ->queue;
+        while (curr != NULL) {
+            if (curr->tid == tid) {
+                break;
+            }
         }
+
+        pthread_mutex_unlock(&WQ->lock);
+    } else {
+        struct thread_queue *tq = &THREAD_QUEUES[thread];
+        // TODO: loop through thread queue to find task
     }
 
-    pthread_mutex_unlock(&WQ->lock);
     return curr;
 }
 
@@ -121,7 +136,6 @@ static inline void work_queue_insert(struct task *t) {
     pthread_mutex_lock(&WQ->lock);
     struct task *curr;
     struct task *prev = WQ->queue;
-
 
     // If list is empty
     if (prev == NULL) {
@@ -173,6 +187,22 @@ static inline void work_queue_insert(struct task *t) {
 }
 
 /**
+ * @brief Insert a task into the done queue
+ * @param t Task to insert
+ */
+void done_queue_insert(struct task *t) {
+    assert(t && t->done);
+    pthread_mutex_lock(&DQ->lock);
+    t->next = DQ->queue;
+    t->thread = DONE_QUEUE_ID;
+    DQ->queue = t;
+
+    DQ->num_tasks++;
+    task_map_update(t->tid, DONE_QUEUE_ID);
+    pthread_mutex_unlock(&DQ->lock);
+}
+
+/**
  * @brief Pop a task from a thread queue
  * @param tq The queue to pop from
  * @return The popped task
@@ -201,6 +231,7 @@ static struct task *task_pop(struct thread_queue *tq) {
  * @param tid Task id to execute
  */
 void thr_execute(struct task *t) {
+    debug_printf("%s\n", "Executing a task");
     struct thread_queue *tq = &THREAD_QUEUES[t->thread];
     struct task *prev;
     struct task *curr;
@@ -212,64 +243,10 @@ void thr_execute(struct task *t) {
     t->ret = t->fn(t->arg);
     t->done = true;
 
+    // Insert task into the done queue
+    done_queue_insert(t);
+
     pthread_mutex_unlock(&t->lock);
-
-    // Remove task from the global work queue
-    // TODO: this should not be necessary
-    /*pthread_mutex_lock(&WQ->lock);
-    curr = WQ->queue;
-    while (curr->next != t) {
-        curr = curr->next;
-    }
-
-    // Update the work queue
-    curr->next = t->next;
-    pthread_mutex_unlock(&WQ->lock);*/
-
-    // fine grained remove
-    pthread_mutex_lock(&tq->lock);
-
-    curr = tq->queue;
-    pthread_mutex_lock(&curr->lock);
-    if (curr == t) {
-        tq->queue = curr->next;
-        tq->num_tasks--;
-        tq->total_cost -= t->cost;
-
-        pthread_mutex_unlock(&tq->lock);
-        pthread_mutex_unlock(&curr->lock);
-
-        pthread_mutex_destroy(&curr->lock);
-        free(curr);
-        return;
-    }
-
-    pthread_mutex_unlock(&tq->lock);
-
-    prev = curr;
-    curr = curr->next;
-
-    while (curr != NULL) {
-        pthread_mutex_lock(&curr->lock);
-
-        if (curr == t) {
-            prev->next = curr->next;
-
-            pthread_mutex_lock(&tq->lock);
-            tq->num_tasks--;
-            tq->total_cost -= t->cost;
-            pthread_mutex_lock(&tq->lock);
-        }
-
-        if (prev != NULL) {
-            pthread_mutex_unlock(&prev->lock);
-        }
-
-        prev = curr;
-        curr = curr->next;
-    }
-
-    pthread_mutex_unlock(&tq->lock);
 }
 
 /**
@@ -315,6 +292,8 @@ void thread_queue_insert(struct thread_queue *tq, struct task *t) {
 
     tq->num_tasks++;
     tq->total_cost += t->cost;
+
+    task_map_update(t->tid, t->thread);
 
     pthread_mutex_unlock(&tq->lock);
 }
@@ -406,6 +385,7 @@ int steal_tasks(struct thread_queue *from, struct thread_queue *to) {
  * @return Number of tasks added to the queue
  */
 int request_tasks(struct thread_queue *tq) {
+    //debug_printf("%s\n", "Requesting a task");
     int tasks_added = 0;
     int num_to_add;
 
@@ -426,13 +406,15 @@ int request_tasks(struct thread_queue *tq) {
     while (tasks_added < num_to_add && WQ->queue != NULL) {
         // TODO: is this right?
         struct task *curr = WQ->queue;
-        WQ->queue = curr->next;
+        if (curr != NULL) {
+            WQ->queue = curr->next;
 
-        pthread_mutex_lock(&curr->lock);
-        thread_queue_insert(tq, curr);
-        pthread_mutex_unlock(&curr->lock);
+            pthread_mutex_lock(&curr->lock);
+            thread_queue_insert(tq, curr);
+            pthread_mutex_unlock(&curr->lock);
 
-        tasks_added++;
+            tasks_added++;
+        }
     }
 
     // pop task off of work queue
@@ -483,7 +465,7 @@ void *worker(void *arg) {
     while (1) {
         // Check if all work is done
         if (DONE) {
-            break;
+            return NULL;
         }
 
         if (tq->num_tasks == 0) {
@@ -525,10 +507,20 @@ void thr_init(void) {
         exit(-1);
     }
 
-    // Initialize global queue
+    DQ = malloc(sizeof(struct work_queue));
+    if (!WQ) {
+        free(WQ);
+        exit(-1);
+    }
+
+    // Initialize global queues
     WQ->num_tasks = 0;
     WQ->queue = NULL;
     pthread_mutex_init(&WQ->lock, NULL);
+
+    DQ->num_tasks = 0;
+    DQ->queue = NULL;
+    pthread_mutex_init(&DQ->lock, NULL);
 
     // Create worker threads
     for (int i = 0; i < NUM_OS_THRS; i++) {
@@ -554,6 +546,9 @@ void thr_init(void) {
 int thr_add(void *(*fn)(void *), void *arg) {
     // Allocate the task (pass the number of tasks as the task id
     struct task *t = task_create(fn, arg, TASK_COUNTER);
+
+    // Insert into the task map, thread of -1 signifies global queue
+    task_map_add(TASK_COUNTER, -1);
 
     // Increment number of tasks
     TASK_COUNTER++;
@@ -581,6 +576,8 @@ void thr_wait(int tid, void **ret) {
     if (ret != NULL) {
         *ret = t->ret;
     }
+
+    // TODO: free task
 }
 
 /**

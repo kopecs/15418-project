@@ -39,4 +39,10 @@ clock_t task_cost_get_from_tid(int tid);
 
 struct task *task_create(void *(*fn)(void *), void *arg, int tid);
 
+void task_map_add(int task_id, int thread_id);
+
+void task_map_update(int task_id, int thread_id);
+
+int task_map_get_thread_id(int task_id);
+
 #endif /* TASK_INDEX_H */

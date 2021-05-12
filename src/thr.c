@@ -61,6 +61,12 @@ struct work_queue *WQ;
 /** Individual work thread queues */
 struct thread_queue THREAD_QUEUES[NUM_OS_THRS];
 
+/** @brief Find the max of two ints */
+MAYBE_UNUSED static inline int max(int x, int y) { return x > y ? x : y; }
+
+/** @brief Find the min of two ints */
+MAYBE_UNUSED static inline int min(int x, int y) { return x < y ? x : y; }
+
 /**
  * @brief Get task struct from task id
  * @param tid Task id
@@ -193,13 +199,49 @@ void thr_execute(struct task *t) {
 }
 
 /**
+ * @brief Find the thread queue with the highest total cost
+ *
+ * Note that this function may not be perfect as it does not lock the queues,
+ * but it does not need to be perfect, as the overhead of locking is too
+ * expensive for the benefit of finding the single most expensive queue
+ *
+ * @return Busiest queue
+ */
+static inline struct thread_queue *find_busiest_queue() {
+    struct thread_queue *best_queue = &THREAD_QUEUES[0];
+    clock_t best_cost = best_queue->total_cost;
+
+    // Loop through queues and find one with highest total cost
+    for (int i = 1; i < NUM_OS_THRS; i++) {
+        struct thread_queue *curr = &THREAD_QUEUES[i];
+        if (curr->total_cost > best_cost) {
+            best_cost = curr->total_cost;
+            best_queue = curr;
+        }
+    }
+
+    return best_queue;
+}
+
+/**
  * @brief Insert a task into a task queue
+ *
+ * @pre t is locked
+ *
  * @param tq The queue to insert into
  * @param t The task to insert
  * @return Success status
  */
-int thread_queue_insert(struct thread_queue *tq, struct task *t) {
-    return 0;
+void thread_queue_insert(struct thread_queue *tq, struct task *t) {
+    pthread_mutex_lock(&tq->lock);
+
+    t->next = tq->queue;
+    tq->queue = t;
+
+    tq->num_tasks++;
+    tq->total_cost += t->cost;
+
+    pthread_mutex_unlock(&tq->lock);
 }
 
 /**
@@ -211,18 +253,18 @@ int thread_queue_insert(struct thread_queue *tq, struct task *t) {
  * @param to The stealer
  * @return Success status
  */
-int steal_task(struct thread_queue *from, struct thread_queue *to) {
+int steal_tasks(struct thread_queue *from, struct thread_queue *to) {
     struct task *curr;
     struct task *prev;
 
     if (!from || !to) {
-        return -1;
+        return 0;
     }
 
     pthread_mutex_lock(&from->lock);
     if (from->queue == NULL) {
         pthread_mutex_unlock(&from->lock);
-        return -1;
+        return 0;
     }
 
     pthread_mutex_lock(&from->queue->lock);
@@ -233,29 +275,19 @@ int steal_task(struct thread_queue *from, struct thread_queue *to) {
 
         // Update queue being stolen from
         from->queue = curr->next;
-        from->total_cost -= curr->cost;
         from->num_tasks--;
+        from->total_cost -= curr->cost;
 
         pthread_mutex_unlock(&from->lock);
 
-        // Add to stealer's queue
-        pthread_mutex_lock(&to->lock);
-
-        // If we are stealing, the queue should be empty TODO not necessarily
-        // true in the future
-        assert(to->queue == NULL);
-
-        // Update stealer's queue and curr next pointer
-        curr->next = to->queue;
-        to->queue = curr;
-        to->num_tasks++;
-        to->total_cost += curr->cost;
-
+        thread_queue_insert(to, curr);
         pthread_mutex_unlock(&curr->lock);
-        pthread_mutex_unlock(&to->lock);
 
-        return 0;
+        return 1;
     }
+
+    // From queue does not need to be locked as head element is locked
+    pthread_mutex_unlock(&from->lock);
 
     curr = from->queue->next;
     prev = from->queue;
@@ -278,7 +310,7 @@ int steal_task(struct thread_queue *from, struct thread_queue *to) {
             pthread_mutex_unlock(&prev->lock);
 
             // Insert curr to stealer
-            // TODO: thread_queue_insert(to, curr);
+            thread_queue_insert(to, curr);
         }
 
         if (prev != NULL) {
@@ -289,7 +321,7 @@ int steal_task(struct thread_queue *from, struct thread_queue *to) {
         curr = curr->next;
     }
 
-    return 0;
+    return 1;
 }
 
 /**
@@ -299,6 +331,7 @@ int steal_task(struct thread_queue *from, struct thread_queue *to) {
  */
 int request_tasks(struct thread_queue *tq) {
     int tasks_added = 0;
+    int num_to_add;
 
     // TODO: fine grained locking
     pthread_mutex_lock(&WQ->lock);
@@ -309,12 +342,9 @@ int request_tasks(struct thread_queue *tq) {
         return 0;
     }
 
-    // TODO: calculate the number of tasks to add, for now only adding one
-
-    // Fine grained stealing:
-    //   Find list with highest total cost
-    //     Find element with cost above threshold and remove it
-    //     otherwise remove the last element
+    // Add at least one task, but take a proportional number of tasks to the
+    // number of threads
+    num_to_add = max(WQ->num_tasks / NUM_OS_THRS, 1);
 
     // pop task off of work queue
     struct task *t = WQ->queue;
@@ -333,6 +363,21 @@ int request_tasks(struct thread_queue *tq) {
     tasks_added++;
 
     pthread_mutex_unlock(&WQ->lock);
+
+    // If there are no tasks in the global queue, steal a task from another
+    // thread
+    if (tasks_added == 0) {
+        struct thread_queue *target = find_busiest_queue();
+
+        // If the searcher is the busiest queue, that means all other queues are
+        // empty too as the searcher must be empty to get here
+        if (target == tq) {
+            return 0;
+        } else {
+            tasks_added += steal_tasks(target, tq);
+        }
+    }
+
     return tasks_added;
 }
 

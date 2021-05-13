@@ -29,7 +29,7 @@ void *h(void *arg) {
 
 int main(void) {
     thr_init();
-    int num_threads = 16;
+    int num_threads = 100;
     int tids[num_threads];
     tids[0] = thr_add(f, NULL, 100);
     for (int i = 1; i < num_threads; i++) {

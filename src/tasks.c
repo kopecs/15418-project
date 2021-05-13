@@ -33,8 +33,6 @@ clock_t task_cost_measure(struct task *t, clock_t given_cost) {
         return c;
     }
 
-    // TODO: check for fn and arg being the same but in differnt task
-
     // Allocate index node
     struct task_cost *cost = malloc(sizeof(struct task_cost));
     if (!cost) {

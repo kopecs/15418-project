@@ -67,6 +67,7 @@ fn main() -> io::Result<()> {
         .arg(&format!("{}/lib/libparse.so", C0_PREFIX))
         .arg(&format!("{}/lib/libstring.so", C0_PREFIX))
         .arg(&format!("{}/lib/libfile.so", C0_PREFIX))
+        .arg(&format!("{}/lib/libfpt.so", C0_PREFIX))
         .args(&["-Wl,-rpath", &format!("{}/runtime", C0_PREFIX)])
         .arg(&format!("{}/runtime/libc0rt.so", C0_PREFIX))
         // NOTE: assumes thread lib is intalled to C0_PREFIX

@@ -34,8 +34,6 @@ fn main() -> io::Result<()> {
         })
         .collect();
 
-    dbg!(&files, &processed, &translated, &finalised);
-
     for (i, o) in files.iter().zip(&processed) {
         preprocess(i, o)?;
     }
@@ -174,15 +172,12 @@ fn postprocess(i: impl AsRef<Path>, o: impl AsRef<Path>) -> io::Result<()> {
     }
 
     if let Some(start) = contents.find(C0_MAIN) {
-        dbg!(start);
         contents.replace_range(start + C0_MAIN.len()..start + C0_MAIN.len(), PRELUDE);
     }
 
     let mut outfile = File::create(o)?;
     outfile.write(b"#include \"thr.h\"\n")?;
     outfile.write(contents.as_bytes())?;
-
-    dbg!("done");
 
     Ok(())
 }

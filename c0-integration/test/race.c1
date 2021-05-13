@@ -1,0 +1,18 @@
+#use <conio>
+
+int * task(int * arg) {
+    printint(*arg);
+    * arg = 8;
+    println("");
+    return NULL;
+}
+
+int main() {
+    int *p = alloc(int);
+    *p = 7;
+
+    do  y <- task(p)
+    and z <- task(p);
+
+    return 0;
+}

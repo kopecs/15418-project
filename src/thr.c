@@ -25,7 +25,7 @@
 /** Max number of threads */
 #define MAX_THRS (32)
 /** Number of os threads used */
-#define NUM_OS_THRS (8)
+#define NUM_OS_THRS (6)
 /** Threshold for task cost to be stolen */
 #define COST_THRESHOLD (3)
 /** Identifier for tasks in the work queue */

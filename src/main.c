@@ -3,6 +3,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include "thr.h"
@@ -23,23 +24,51 @@ void *g(void *arg) {
 void *h(void *arg) {
     int i = (int)arg;
     printf("%d\n", i);
-    usleep(5000);
+    usleep(100000);
     return NULL;
+}
+
+void *rsleep(void *arg) {
+    int stime = (int)arg;
+    usleep(stime);
+    return NULL;
+}
+
+void randsleep() {
+    int num_threads = 32;
+    int tids[num_threads];
+    for (int i = 0; i < num_threads; i++) {
+        int stime = rand() % 2000000;
+        tids[i] = thr_add(rsleep, (void *)stime, stime);
+    }
+
+    thr_start();
+
+    for (int i = 0; i < num_threads; i++) {
+        thr_wait(tids[i], NULL);
+    }
 }
 
 int main(void) {
     thr_init();
-    int num_threads = 16;
+
+    randsleep();
+
+    /*int num_threads = 100;
     int tids[num_threads];
-    tids[0] = thr_add(f, NULL, 100);
+    tids[0] = thr_add(f, NULL, 1000);
+    tids[50] = thr_add(f, NULL, 1000);
+    tids[99] = thr_add(f, NULL, 1000);
     for (int i = 1; i < num_threads; i++) {
+        if (i == 50 || i == 99) continue;
         tids[i] = thr_add(h, (void *)i, 10);
     }
+
 
     thr_start();
     for (int i = 0; i < num_threads; i++) {
         thr_wait(tids[i], NULL);
-    }
+    }*/
 
     /*int tidf = thr_add(f, NULL, 100);
     int tidg = thr_add(g, NULL, 1);

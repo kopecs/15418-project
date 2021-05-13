@@ -25,7 +25,7 @@
 /** Max number of threads */
 #define MAX_THRS (32)
 /** Number of os threads used */
-#define NUM_OS_THRS (2)
+#define NUM_OS_THRS (8)
 /** Threshold for task cost to be stolen */
 #define COST_THRESHOLD (3)
 /** Identifier for tasks in the work queue */
@@ -33,7 +33,7 @@
 /** Identifier for tasks in the done queue */
 #define DONE_QUEUE_ID (-2)
 
-#define DBG_PRNT
+//#define DBG_PRNT
 
 MAYBE_UNUSED static inline void debug_printf(const char *format, ...) {
     va_list args;
@@ -420,6 +420,8 @@ int request_tasks(struct thread_queue *tq) {
     // debug_printf("Requesting\n");
     int tasks_added = 0;
     int num_to_add;
+    clock_t cost_to_add;
+    clock_t cost_added = 0;
 
     // Fine grained locking isn't needed here as it is always popping off the
     // front
@@ -430,12 +432,15 @@ int request_tasks(struct thread_queue *tq) {
         // Add at least one task, but take a proportional number of tasks to the
         // number of threads
         num_to_add = max((WQ->total_tasks / NUM_OS_THRS) + 1, 1);
+        cost_to_add = WQ->total_cost / NUM_OS_THRS;
         if (WQ->num_tasks == 0) {
             num_to_add = 0;
+            cost_to_add = 0;
         }
         // debug_printf("%d Num to add is %d\n", WQ->total_tasks, num_to_add);
 
-        while (tasks_added < num_to_add && WQ->queue != NULL) {
+        // while (tasks_added < num_to_add && WQ->queue != NULL) {
+        while (cost_added < cost_to_add && WQ->queue != NULL) {
             struct task *t;
 
             WQ->num_tasks--;
@@ -444,6 +449,7 @@ int request_tasks(struct thread_queue *tq) {
                 pthread_mutex_lock(&t->lock);
                 WQ->queue = t->next;
                 thread_queue_insert(tq, t);
+                cost_added += t->cost;
                 pthread_mutex_unlock(&t->lock);
                 tasks_added++;
             }
@@ -455,7 +461,7 @@ int request_tasks(struct thread_queue *tq) {
 
     // If there are no tasks in the global queue, steal a task from another
     // thread
-    if (tasks_added == 0) {
+    /*if (tasks_added == 0) {
         struct thread_queue *target = find_busiest_queue();
 
         // If the searcher is the busiest queue, that means all other queues are
@@ -465,7 +471,7 @@ int request_tasks(struct thread_queue *tq) {
         } else {
             tasks_added += steal_tasks(target, tq);
         }
-    }
+    }*/
 
     return tasks_added;
 }
@@ -475,8 +481,6 @@ int request_tasks(struct thread_queue *tq) {
  * @param arg Thread's queue
  */
 void *worker(void *arg) {
-    int sleep_time = 1;
-
     struct thread_queue *tq = (struct thread_queue *)arg;
 
     // Main execution loop

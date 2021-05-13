@@ -69,7 +69,8 @@ fn main() -> io::Result<()> {
         .arg(&format!("{}/lib/libfile.so", C0_PREFIX))
         .args(&["-Wl,-rpath", &format!("{}/runtime", C0_PREFIX)])
         .arg(&format!("{}/runtime/libc0rt.so", C0_PREFIX))
-        .arg("thr.so")
+        // NOTE: assumes thread lib is intalled to C0_PREFIX
+        .arg(&format!("{}/lib/thr.so", C0_PREFIX))
         .arg("-g")
         .args(finalised)
         .output()
@@ -157,7 +158,7 @@ fn postprocess(i: impl AsRef<Path>, o: impl AsRef<Path>) -> io::Result<()> {
             vars.push_str(&format!("void *_c0v_{};\n", var));
 
             forks.push_str(&format!(
-                "int __THRID{} = {}((void * (*)(void *))_c0_{}, _c0v_{});\n",
+                "int __THRID{} = {}((void * (*)(void *))_c0_{}, _c0v_{}, 0);\n",
                 id, FORKFN, func, arg
             ));
 

@@ -13,13 +13,13 @@ C0_ROOT = "/usr/lib/c0"
 all: thr
 
 .PHONY: thr
-thr: $(BDIR)/libthr.so
+thr: $(BDIR)/thr.so
 
 $(ODIR)/%.o: $(SDIR)/%.c
 	$(CC) -c -o $@ $< $(CFLAGS)
 
-$(BDIR)/libthr.so: $(OBJS)
-	$(CC) -shared -Wl,-soname,libthr.so -o $@ $^ $(CFLAGS) $(LIBS)
+$(BDIR)/thr.so: $(OBJS)
+	$(CC) -shared -Wl,-soname,thr.so -o $@ $^ $(CFLAGS) $(LIBS)
 
 .PHONY: format
 format:
@@ -32,4 +32,5 @@ clean:
 
 .PHONY: install
 install: 
-	install $(SDIR)/thr.h0 $(BDIR)/libthr.so $(C0_ROOT)/lib/
+	install $(SDIR)/thr.h  $(C0_ROOT)/include/
+	install $(BDIR)/thr.so $(C0_ROOT)/lib/

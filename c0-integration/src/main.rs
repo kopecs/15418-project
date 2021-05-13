@@ -63,9 +63,14 @@ fn main() -> io::Result<()> {
         .arg(&format!("{}/lib/cc0main.c", C0_PREFIX))
         .arg(&format!("-L{}/runtime", C0_PREFIX))
         .args(&["-Wl,-rpath", &format!("{}/lib", C0_PREFIX)])
+        .arg(&format!("{}/lib/libconio.so", C0_PREFIX))
+        .arg(&format!("{}/lib/libparse.so", C0_PREFIX))
+        .arg(&format!("{}/lib/libstring.so", C0_PREFIX))
+        .arg(&format!("{}/lib/libfile.so", C0_PREFIX))
         .args(&["-Wl,-rpath", &format!("{}/runtime", C0_PREFIX)])
         .arg(&format!("{}/runtime/libc0rt.so", C0_PREFIX))
         .arg("thr.so")
+        .arg("-g")
         .args(finalised)
         .output()
         .expect("failed to run gcc");
@@ -152,7 +157,7 @@ fn postprocess(i: impl AsRef<Path>, o: impl AsRef<Path>) -> io::Result<()> {
             vars.push_str(&format!("void *_c0v_{};\n", var));
 
             forks.push_str(&format!(
-                "int __THRID{} = {}(_c0_{}, _c0v_{});\n",
+                "int __THRID{} = {}((void * (*)(void *))_c0_{}, _c0v_{});\n",
                 id, FORKFN, func, arg
             ));
 

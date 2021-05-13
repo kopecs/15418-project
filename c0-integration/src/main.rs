@@ -106,7 +106,10 @@ fn preprocess(i: impl AsRef<Path>, o: impl AsRef<Path>) -> io::Result<()> {
             record.push_str(var);
             record.push_str(SEPARATOR);
 
-            let funapp: Vec<_> = funapp.trim_end_matches(");").splitn(2, "(").collect();
+            let funapp: Vec<_> = funapp
+                .trim_end_matches(&[')', ';', '\n', '\r', ' '] as &[_])
+                .splitn(2, "(")
+                .collect();
             record.push_str(funapp[0]);
             record.push_str(SEPARATOR);
             record.push_str(funapp[1]);
@@ -116,7 +119,7 @@ fn preprocess(i: impl AsRef<Path>, o: impl AsRef<Path>) -> io::Result<()> {
 
         record.push_str(END);
 
-        contents.replace_range(start..end, &record[..]);
+        contents.replace_range(start..=end, &record[..]);
     }
 
     let mut outfile = File::create(o)?;
@@ -138,8 +141,9 @@ fn postprocess(i: impl AsRef<Path>, o: impl AsRef<Path>) -> io::Result<()> {
         let mut joins = String::new();
         let mut id = 0;
 
-        let tokens: Vec<_> = contents[start + STARTPOST.len()..end - END.len()]
+        let tokens: Vec<_> = contents[start + STARTPOST.len()..end]
             .split(SEPARATOR)
+            .filter(|x| !x.is_empty())
             .collect();
 
         for line in tokens.chunks(3) {
@@ -148,7 +152,7 @@ fn postprocess(i: impl AsRef<Path>, o: impl AsRef<Path>) -> io::Result<()> {
             vars.push_str(&format!("void *_c0v_{};\n", var));
 
             forks.push_str(&format!(
-                "int __THRID{} = {}(_c0_{}, {});\n",
+                "int __THRID{} = {}(_c0_{}, _c0v_{});\n",
                 id, FORKFN, func, arg
             ));
 
@@ -158,7 +162,7 @@ fn postprocess(i: impl AsRef<Path>, o: impl AsRef<Path>) -> io::Result<()> {
         }
 
         contents.replace_range(
-            start..end,
+            start..=end + END.len(),
             &format!(
                 "{}
 

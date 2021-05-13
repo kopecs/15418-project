@@ -1,0 +1,8 @@
+[package]
+name = "c0-integration"
+version = "0.1.0"
+authors = ["Cooper Pierce <cppierce@andrew.cmu.edu>"]
+edition = "2018"
+
+
+[dependencies]

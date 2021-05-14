@@ -1,3 +1,7 @@
-# 15418-project
+# Setup
 
-The goal of this project is to implement some sorta threads for the C0 runtime
+1. Modify the various uses of `C0_ROOT` and `C0_PREFIX` 
+   (in the Makefile, `c0-integration/src/main.rs`, etc...)
+   to correctly point to your C0 installation.
+2. `make`
+3. `make install`

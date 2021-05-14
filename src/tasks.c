@@ -8,6 +8,9 @@
 
 #include "tasks.h"
 
+/** If costs need to be measured or if the user provides a cost */
+const bool TIME_TASKS = false;
+
 /** Index of task costs */
 struct task_cost *task_index;
 
@@ -47,10 +50,15 @@ clock_t task_cost_measure(struct task *t, clock_t given_cost) {
     // Measure function execution time
     printf("[DBG] Measuring the cost of a task\n");
 
-    cost->cost = given_cost;
-    cost->next = task_index;
-    task_index = cost;
-    return cost->cost;
+    // User has given a cost
+    if (!TIME_TASKS) {
+        cost->cost = given_cost;
+        cost->next = task_index;
+        task_index = cost;
+        return cost->cost;
+    }
+
+    // Need to time task cost
     start = clock();
     t->fn(t->arg);
     end = clock();

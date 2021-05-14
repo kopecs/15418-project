@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS = -Wall -Wextra -fPIC -g # -fsanitize=thread
+CFLAGS = -Wall -Wextra -fPIC -g
 ODIR = obj
 BDIR = bld
 SDIR = src
@@ -31,6 +31,6 @@ clean:
 	rm -f bld/*
 
 .PHONY: install
-install: 
+install:
 	install $(SDIR)/thr.h  $(C0_ROOT)/include/
 	install $(BDIR)/thr.so $(C0_ROOT)/lib/

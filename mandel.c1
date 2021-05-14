@@ -1,0 +1,89 @@
+#use <conio>
+#use <fpt>
+
+struct arg {
+    int[] out;
+    int start;
+    int end;
+};
+
+int mandel(fpt c_re, fpt c_im) {
+    fpt z_re = c_re;
+    fpt z_im = c_im;
+    fpt limit = itof(4);
+
+    for (int i = 0; i < 512; i++) {
+        if (fless(limit, fadd(fmul(z_re, z_re), fmul(z_im, z_im)))) {
+            return i;
+        }
+
+        fpt new_re = fsub(fmul(z_re, z_re), fmul(z_im, z_im));
+        fpt new_im = fmul(fmul(itof(2), z_re), z_im);
+        z_re = fadd(new_re, c_re);
+        z_im = fadd(new_im, c_im);
+    }
+
+    return 512;
+}
+
+int *task(struct arg *myarg) {
+    fpt two = itof(2);
+    fpt sixty = itof(96);
+    fpt minus_one = itof(-1);
+    fpt dx = fdiv(two, sixty);
+    fpt dy = fdiv(two, sixty);
+    for (int i = myarg->start; i < myarg->end; i++) {
+        for (int j = 0; j < 96; j++) {
+            fpt x = fadd(minus_one, fmul(itof(i), dx));
+            fpt y = fadd(minus_one, fmul(itof(j), dy));
+            int index = i * 96 + j;
+            myarg->out[index] = mandel(x, y);
+        }
+    }
+
+    return NULL;
+
+}
+
+int main() {
+    int size = 96;
+    int[] out = alloc_array(int, size*size);
+    struct arg *arg0 = alloc(struct arg);
+    struct arg *arg1 = alloc(struct arg);
+    struct arg *arg2 = alloc(struct arg);
+    struct arg *arg3 = alloc(struct arg);
+
+    arg0->out = out;
+    arg1->out = out;
+    arg2->out = out;
+    arg3->out = out;
+
+    arg0->start = 0;
+    arg0->end = 24;
+    arg1->start = 24;
+    arg1->end = 48;
+    arg2->start = 48;
+    arg2->end = 72;
+    arg3->start = 72;
+    arg3->end = 96;
+
+
+    do  p <- task(arg0)
+    and q <- task(arg1)
+    and r <- task(arg2)
+    and s <- task(arg3);
+
+    for (int i = 0; i < 96; i++) {
+        for (int j = 0; j < 96; j++) {
+            //printf("%d ", out[i*96+j]);
+            if (out[j*96+i] > 480) {
+                printf(" ");
+            } else {
+                printf("*");
+            }
+        }
+        printf("\n");
+    }
+
+    return 0;
+}

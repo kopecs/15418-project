@@ -436,7 +436,26 @@ int request_tasks(struct thread_queue *tq) {
                 tasks_added++;
             }
         }
+
+        // Increment cost of each task in global queue to prevent starvation
+        struct task *prev;
+        struct task *curr = WQ->queue;
+        ;
+        pthread_mutex_lock(&curr->lock);
+
+        curr->cost += WQ->total_cost / 10;
         pthread_mutex_unlock(&WQ->lock);
+
+        prev = curr;
+        curr = curr->next;
+        while (curr != NULL) {
+            pthread_mutex_lock(&curr->lock);
+            curr->cost += WQ->total_cost / 10;
+            pthread_mutex_unlock(&prev->lock);
+        }
+
+        pthread_mutex_unlock(&curr->lock);
+
     } else {
         pthread_mutex_unlock(&WQ->lock);
     }
